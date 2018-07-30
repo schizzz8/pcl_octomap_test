@@ -20,7 +20,7 @@ int main(int argc, char** argv){
     scan.push_back(pt.x,pt.y,pt.z);
 
   octomap::OcTree tree(0.05);
-  tree.insertPointCloud(scan,octomap::point3d(0,0,0.6));
+  tree.insertPointCloud(scan,octomap::point3d(0,0,0),octomap::pose6d(0,0,0.6,0,0,0));
 
   std::string data(argv[1]);
   data = data.substr(0,data.find_first_of("."));
