@@ -20,6 +20,27 @@ typedef pcl::PointCloud<Point> PointCloud;
 
 typedef pcl::visualization::PCLVisualizer Visualizer;
 
+octomap::Pointcloud makeSphere(){
+  octomap::Pointcloud scan;
+  float theta=0,phi=0;
+  int m = 10;
+  float theta_stepsize = 180.0 / m * M_PI/180;
+  int n = 10;
+  float phi_stepsize = 360.0 / n * M_PI/180;
+  octomap::point3d temp;
+  for(int i = 0; i < m; ++i){
+    theta = i*theta_stepsize;
+    for(int j = 0; j < n; ++j){
+      phi = j*phi_stepsize;
+      temp.x() = 0.7*cos(phi)*cos(theta);
+      temp.y() = 0.7*cos(phi)*sin(theta);
+      temp.z() = 0.7*sin(phi);
+      scan.push_back(temp);
+    }
+  }
+  return scan;
+}
+
 void showCubes(double side,
                const PointCloud::Ptr& occ_cloud,
                const PointCloud::Ptr& fre_cloud,
@@ -27,21 +48,16 @@ void showCubes(double side,
 
 int main(int argc, char** argv){
 
-  PointCloud::Ptr cloud (new PointCloud);
-  std::cerr << "Loading file " << argv[1] << std::endl;
-  pcl::io::loadPCDFile<Point> (argv[1], *cloud);
-
-  octomap::Pointcloud scan;
-  for(const Point& pt : cloud->points)
-    scan.push_back(pt.x,pt.y,pt.z);
-
+  //build octree
   octomap::OcTree octree(0.05);
-  octree.insertPointCloud(scan,octomap::point3d(0,0,0),octomap::pose6d(0,0,0.6,0,0,0));
+  octomap::point3d origin(-1.0,0.0,0.5);
+  octomap::Pointcloud scan = makeSphere();
+  octree.insertPointCloud(scan,origin);
 
+  //add it to the pcl viewer
   Visualizer::Ptr viewer (new Visualizer ("Octree Viewer"));
-
-  bool showAll = true;
-  int cnt_occupied_thres, cnt_occupied, cnt_free_thres, cnt_free;
+  viewer->addCoordinateSystem (0.5);
+  int cnt_occupied,cnt_free;
   PointCloud::Ptr occ_voxel_cloud (new PointCloud);
   PointCloud::Ptr fre_voxel_cloud (new PointCloud);
   octomap::point3d p;
@@ -49,45 +65,69 @@ int main(int argc, char** argv){
   for(octomap::OcTree::tree_iterator it = octree.begin_tree(octree.getTreeDepth()),end=octree.end_tree(); it!= end; ++it) {
     if (it.isLeaf()) {
       if (octree.isNodeOccupied(*it)){ // occupied voxels
-        if (octree.isNodeAtThreshold(*it))
-          ++cnt_occupied_thres;
-        else
-          ++cnt_occupied;
+        ++cnt_occupied;
 
         p = it.getCoordinate();
-        pt.x = p.x();
-        pt.y = p.y();
-        pt.z = p.z();
+        pt.x = p.x();pt.y = p.y();pt.z = p.z();
         occ_voxel_cloud->points.push_back(pt);
-      }
-      else if (showAll) { // freespace voxels
-        if (octree.isNodeAtThreshold(*it))
-          ++cnt_free_thres;
-        else
-          ++cnt_free;
+      } else { // freespace voxels
+        ++cnt_free;
+
         p = it.getCoordinate();
-        pt.x = p.x();
-        pt.y = p.y();
-        pt.z = p.z();
+        pt.x = p.x();pt.y = p.y();pt.z = p.z();
         fre_voxel_cloud->points.push_back(pt);
       }
     }
   }
-
   showCubes(0.05,occ_voxel_cloud,fre_voxel_cloud,viewer);
-  viewer->addCoordinateSystem (0.5);
+
+  //perform ray casting
+  int occ=0,fre=0,unn=0;
+  octomap::KeyRay ray_beam;
+  std::vector<octomap::point3d> ray;
+  octomap::point3d dir(1.0,0.0,0.0);
+  if(octree.computeRayKeys(origin,dir,ray_beam)){
+    //    std::cerr << "Intersected voxels: " << ray_beam.size() << std::endl;
+    //    for(octomap::KeyRay::iterator it=ray_beam.begin(); it!=ray_beam.end(); ++it){
+    //      octomap::OcTreeNode* n = octree.search(*it);
+    //      if(n){
+    //        double value = n->getOccupancy();
+    //        std::cerr << n->getOccupancy() << std::endl;
+    //        if(value==0.5)
+    //          unn++;
+    //        if(value>0.5){
+    //          occ++;
+    //          break;
+    //        }
+    //      }
+    //    }
+    ray.clear();
+    if(octree.computeRay(origin,dir,ray)){
+      std::cerr << "Intersected voxels: " << ray.size() << std::endl;
+      for(std::vector<octomap::point3d>::iterator it=ray.begin(); it!=ray.end(); ++it){
+        octomap::OcTreeNode* n = octree.search(*it);
+        if(n){
+          double value = n->getOccupancy();
+          std::cerr << n->getOccupancy() << std::endl;
+          if(value==0.5)
+            unn++;
+          if(value>0.5){
+            occ++;
+            break;
+          }
+        }
+      }
+    }
+
+  }
+
+
+  std::cerr << std::endl << "occ: " << occ << " - unn: " << unn << std::endl;
 
   while (!viewer->wasStopped()){
     viewer->spinOnce(100);
     boost::this_thread::sleep(boost::posix_time::microseconds(100000));
   }
-
-
-//  std::string data(argv[1]);
-//  data = data.substr(0,data.find_first_of("."));
-//  data = data + ".bt";
-//  octree.writeBinary(data);
-//  std::cerr << std::endl;
 
   return 0;
 }
