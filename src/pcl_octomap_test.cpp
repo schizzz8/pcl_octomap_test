@@ -23,10 +23,10 @@ typedef pcl::visualization::PCLVisualizer Visualizer;
 octomap::Pointcloud makeSphere(){
   octomap::Pointcloud scan;
   float theta=0,phi=0;
-  int m = 10;
+  int m = 20;
   float theta_stepsize = 180.0 / m * M_PI/180;
-  int n = 10;
-  float phi_stepsize = 360.0 / n * M_PI/180;
+  int n = 20;
+  float phi_stepsize = 180.0 / n * M_PI/180;
   octomap::point3d temp;
   for(int i = 0; i < m; ++i){
     theta = i*theta_stepsize;
@@ -50,8 +50,9 @@ int main(int argc, char** argv){
 
   //build octree
   octomap::OcTree octree(0.05);
-  octomap::point3d origin(-1.0,0.0,0.5);
+  octomap::point3d origin(0.0,-0.025,-0.025);
   octomap::Pointcloud scan = makeSphere();
+  scan.transform(octomath::Pose6D(octomath::Vector3(1.0,0.0,0.0),octomath::Quaternion(0.0,-M_PI_2,0.0)));
   octree.insertPointCloud(scan,origin);
 
   //add it to the pcl viewer
@@ -79,48 +80,53 @@ int main(int argc, char** argv){
       }
     }
   }
-  showCubes(0.05,occ_voxel_cloud,fre_voxel_cloud,viewer);
+  showCubes(0.025,occ_voxel_cloud,fre_voxel_cloud,viewer);
 
   //perform ray casting
   int occ=0,fre=0,unn=0;
-  octomap::KeyRay ray_beam;
+  float s=0.025;
   std::vector<octomap::point3d> ray;
-  octomap::point3d dir(1.0,0.0,0.0);
-  if(octree.computeRayKeys(origin,dir,ray_beam)){
-    //    std::cerr << "Intersected voxels: " << ray_beam.size() << std::endl;
-    //    for(octomap::KeyRay::iterator it=ray_beam.begin(); it!=ray_beam.end(); ++it){
-    //      octomap::OcTreeNode* n = octree.search(*it);
-    //      if(n){
-    //        double value = n->getOccupancy();
-    //        std::cerr << n->getOccupancy() << std::endl;
-    //        if(value==0.5)
-    //          unn++;
-    //        if(value>0.5){
-    //          occ++;
-    //          break;
-    //        }
-    //      }
-    //    }
-    ray.clear();
-    if(octree.computeRay(origin,dir,ray)){
-      std::cerr << "Intersected voxels: " << ray.size() << std::endl;
-      for(std::vector<octomap::point3d>::iterator it=ray.begin(); it!=ray.end(); ++it){
-        octomap::OcTreeNode* n = octree.search(*it);
-        if(n){
-          double value = n->getOccupancy();
-          std::cerr << n->getOccupancy() << std::endl;
-          if(value==0.5)
-            unn++;
-          if(value>0.5){
-            occ++;
-            break;
-          }
+  octomap::point3d ray_o(0.5,1.0,0.0);
+  octomap::point3d ray_e(0.5,0.0,0.0);
+  ray.clear();
+  if(octree.computeRay(ray_o,ray_e,ray)){
+    std::cerr << "Voxels: " << ray.size() << std::endl;
+    for(int i=0; i<ray.size(); ++i){
+      octomap::OcTreeNode* n = octree.search(ray[i]);
+      bool found = false;
+      double value = -1;
+      if(n){
+        found = true;
+        value = n->getOccupancy();
+
+        if(value==0.5)
+          unn++;
+        if(value>0.5){
+          occ++;
+          break;
         }
       }
+      octomap::point3d v = ray[i];
+      char buffer[30];
+      sprintf(buffer,"cube_%d",i);
+      if(found)
+        viewer->addCube(v.x()-s,v.x()+s,v.y()-s,v.y()+s,v.z()-s,v.z()+s,0.0,0.0,1.0,buffer);
+      //      else
+      //        viewer->addCube(v.x()-s,v.x()+s,v.y()-s,v.y()+s,v.z()-s,v.z()+s,0.0,1.0,0.0,buffer);
+      std::cerr << "voxel: " << v << " - value: " << value << std::endl;
     }
-
   }
 
+
+  Point o;
+  o.x = ray_o.x();
+  o.y = ray_o.y();
+  o.z = ray_o.z();
+  Point e;
+  e.x = ray_e.x();
+  e.y = ray_e.y();
+  e.z = ray_e.z();
+  viewer->addLine(o,e,"line");
 
   std::cerr << std::endl << "occ: " << occ << " - unn: " << unn << std::endl;
 
@@ -178,7 +184,7 @@ void showCubes(double s,
     viewer->getRenderWindow ()->GetRenderers ()->GetFirstRenderer ()->AddActor (occ_multi_actor);
   }
 
-  if(fre_cloud->points.size()){
+  if(fre_cloud->points.size() && 0){
     // process fre cloud
     vtkSmartPointer<vtkAppendPolyData> fre_append_filter = vtkSmartPointer<vtkAppendPolyData>::New ();
     for (size_t i = 0; i < fre_cloud->points.size (); i++) {
